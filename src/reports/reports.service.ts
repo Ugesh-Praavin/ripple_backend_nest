@@ -104,22 +104,28 @@ export class ReportsService {
       throw new UnauthorizedException('You do not have access to this report');
     }
 
-    const { data: updatedReport, error: updateError } = await this.supabase
+    const { data: updatedReport, error } = await this.supabase
       .getClient()
       .from('reports')
       .update({
         worker_name: workerName,
-        status: 'In Progress', // <--- ADD THIS LINE
+        status: 'In Progress', // 🔥 THIS IS MANDATORY
         updated_at: new Date().toISOString(),
       })
       .eq('id', reportId)
-      .select();
+      .select()
+      .single();
 
-    if (updateError || !updatedReport || updatedReport.length === 0) {
-      throw new BadRequestException('Failed to update report');
+    if (error || !updatedReport) {
+      throw new BadRequestException('Failed to assign worker');
     }
 
-    return updatedReport[0] as Report;
+    console.log(
+      '[ASSIGN WORKER] Status after DB update:',
+      updatedReport.status,
+    );
+
+    return updatedReport;
   }
 
   /**
@@ -151,11 +157,20 @@ export class ReportsService {
       .single();
 
     console.log('🟢 [SERVICE] Supabase SELECT result:');
-    console.log('🟢 [SERVICE] - data:', report ? JSON.stringify(report, null, 2) : 'null');
-    console.log('🟢 [SERVICE] - error:', fetchError ? JSON.stringify(fetchError, null, 2) : 'null');
+    console.log(
+      '🟢 [SERVICE] - data:',
+      report ? JSON.stringify(report, null, 2) : 'null',
+    );
+    console.log(
+      '🟢 [SERVICE] - error:',
+      fetchError ? JSON.stringify(fetchError, null, 2) : 'null',
+    );
 
     if (fetchError) {
-      console.log('🟢 [SERVICE] ERROR: Supabase SELECT failed:', fetchError.message);
+      console.log(
+        '🟢 [SERVICE] ERROR: Supabase SELECT failed:',
+        fetchError.message,
+      );
       throw new BadRequestException(
         `Report not found: ${fetchError.message || 'Database query failed'}`,
       );
@@ -176,7 +191,10 @@ export class ReportsService {
 
     // Check status
     if (typedReport.status !== 'In Progress') {
-      console.log('🟢 [SERVICE] ERROR: Status check failed. Current status:', typedReport.status);
+      console.log(
+        '🟢 [SERVICE] ERROR: Status check failed. Current status:',
+        typedReport.status,
+      );
       throw new BadRequestException(
         `Cannot complete report. Current status: ${typedReport.status}. Expected: "In Progress"`,
       );
@@ -195,7 +213,10 @@ export class ReportsService {
     // Access check
     if (typedReport.supervisor_id && typedReport.supervisor_id !== user.uid) {
       console.log('🟢 [SERVICE] ERROR: Access check failed');
-      console.log('🟢 [SERVICE] - report.supervisor_id:', typedReport.supervisor_id);
+      console.log(
+        '🟢 [SERVICE] - report.supervisor_id:',
+        typedReport.supervisor_id,
+      );
       console.log('🟢 [SERVICE] - user.uid:', user.uid);
       throw new UnauthorizedException(
         `You do not have access to this report. Report is assigned to supervisor: ${typedReport.supervisor_id}`,
@@ -223,12 +244,24 @@ export class ReportsService {
       .select();
 
     console.log('🟢 [SERVICE] Supabase UPDATE result:');
-    console.log('🟢 [SERVICE] - data:', updatedReport ? JSON.stringify(updatedReport, null, 2) : 'null');
-    console.log('🟢 [SERVICE] - data.length:', updatedReport ? updatedReport.length : 'N/A');
-    console.log('🟢 [SERVICE] - error:', updateError ? JSON.stringify(updateError, null, 2) : 'null');
+    console.log(
+      '🟢 [SERVICE] - data:',
+      updatedReport ? JSON.stringify(updatedReport, null, 2) : 'null',
+    );
+    console.log(
+      '🟢 [SERVICE] - data.length:',
+      updatedReport ? updatedReport.length : 'N/A',
+    );
+    console.log(
+      '🟢 [SERVICE] - error:',
+      updateError ? JSON.stringify(updateError, null, 2) : 'null',
+    );
 
     if (updateError) {
-      console.log('🟢 [SERVICE] ERROR: Supabase UPDATE failed:', updateError.message);
+      console.log(
+        '🟢 [SERVICE] ERROR: Supabase UPDATE failed:',
+        updateError.message,
+      );
       throw new BadRequestException(
         `Failed to update report: ${updateError.message || 'Database update failed'}`,
       );
@@ -248,10 +281,13 @@ export class ReportsService {
       );
     }
 
-    console.log('🟢 [SERVICE] UPDATE successful, affected rows:', updatedReport.length);
+    console.log(
+      '🟢 [SERVICE] UPDATE successful, affected rows:',
+      updatedReport.length,
+    );
     console.log('🟢 [SERVICE] Calling verifyReport...');
 
-    return this.verifyReport(reportId, resolvedImageUrl);
+    return this.resolveReport(reportId);
   }
 
   /**
