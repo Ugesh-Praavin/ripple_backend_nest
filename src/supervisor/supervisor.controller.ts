@@ -12,6 +12,7 @@ import {
 import { ReportsService } from '../reports/reports.service';
 import { FirebaseAuthGuard } from 'src/auth/guard/firebase.guard';
 import { RequestUser } from '../reports/reports.types';
+import { CompleteReportDto } from './dto/complete-report.dto';
 
 @Controller('supervisor')
 @UseGuards(FirebaseAuthGuard)
@@ -41,12 +42,19 @@ export class SupervisorController {
   @Patch('report/:id/complete')
   completeReport(
     @Param('id') reportId: string,
-    @Body('image_url') imageUrl: string,
+    @Body() body: CompleteReportDto,
     @Req() req: { user: RequestUser },
   ) {
     if (req.user.role !== 'SUPERVISOR') {
       throw new ForbiddenException('Supervisor access required');
     }
-    return this.reportsService.completeReport(reportId, imageUrl, req.user);
+
+    // Validation is handled by class-validator decorators in CompleteReportDto
+    // ValidationPipe will automatically validate and throw BadRequestException if invalid
+    return this.reportsService.completeReport(
+      reportId,
+      body.image_url,
+      req.user,
+    );
   }
 }

@@ -109,17 +109,17 @@ export class ReportsService {
       .from('reports')
       .update({
         worker_name: workerName,
+        status: 'In Progress', // <--- ADD THIS LINE
         updated_at: new Date().toISOString(),
       })
       .eq('id', reportId)
-      .select()
-      .single();
+      .select();
 
-    if (updateError || !updatedReport) {
-      throw new BadRequestException('Failed to assign worker');
+    if (updateError || !updatedReport || updatedReport.length === 0) {
+      throw new BadRequestException('Failed to update report');
     }
 
-    return updatedReport as Report;
+    return updatedReport[0] as Report;
   }
 
   /**
@@ -148,35 +148,50 @@ export class ReportsService {
     }
 
     const typedReport = report as Report;
+    console.log('🧪 COMPLETE DEBUG', {
+      reportId,
+      status: typedReport.status,
+      worker: typedReport.worker_name,
+      supervisor_id: typedReport.supervisor_id,
+      user_uid: user.uid,
+    });
 
-    // Verify supervisor has access to this report
-    if (
-      typedReport.supervisor_id &&
-      typedReport.supervisor_id !== user.uid &&
-      typedReport.supervisor_id !== user.block_id
-    ) {
+    // ✅ ADD THESE TWO CHECKS
+    if (typedReport.status !== 'In Progress') {
+      throw new BadRequestException(
+        `Cannot complete report. Current status: ${typedReport.status}`,
+      );
+    }
+
+    if (!typedReport.worker_name) {
+      throw new BadRequestException(
+        'Assign a worker before completing the report',
+      );
+    }
+
+    // ✅ Access check (keep this)
+    if (typedReport.supervisor_id && typedReport.supervisor_id !== user.uid) {
       throw new UnauthorizedException('You do not have access to this report');
     }
 
-    // Save resolved image URL
+    // ✅ NOW update resolved image
     const { data: updatedReport, error: updateError } = await this.supabase
       .getClient()
       .from('reports')
       .update({
         resolved_image_url: resolvedImageUrl,
+        status: 'VerificationPending', // ✅ IMPORTANT
         updated_at: new Date().toISOString(),
       })
       .eq('id', reportId)
-      .select()
-      .single();
+      .select();
 
-    if (updateError || !updatedReport) {
+    if (updateError || !updatedReport || updatedReport.length === 0) {
       throw new BadRequestException(
         'Failed to update report with resolved image',
       );
     }
 
-    // Trigger ML verification if applicable
     return this.verifyReport(reportId, resolvedImageUrl);
   }
 
@@ -213,8 +228,14 @@ export class ReportsService {
 
     const requiresML = mlSupportedTypes.includes(typedReport.issue_type);
 
+    // 🚨 HARD GUARD — issue_type may be NULL
+    if (!typedReport.issue_type) {
+      return this.resolveReport(reportId);
+    }
+
+    // 🚨 HARD GUARD — issue_type may be NULL
+
     if (!requiresML) {
-      // No ML verification needed, resolve directly
       return this.resolveReport(reportId);
     }
 
@@ -276,25 +297,30 @@ export class ReportsService {
       .from('reports')
       .update(resolveData)
       .eq('id', reportId)
-      .select()
-      .single();
+      .select();
 
-    if (resolveError || !resolvedReport) {
+    if (resolveError || !resolvedReport || resolvedReport.length === 0) {
       throw new BadRequestException('Failed to resolve report');
     }
 
-    // Store ML verification result if available
-    if (mlResult) {
-      await this.supabase.getClient().from('ml_verification').insert({
-        report_id: reportId,
-        predicted_class: mlResult.predicted_class,
-        confidence: mlResult.confidence,
-        verified: true,
-        verified_at: new Date().toISOString(),
-      });
-    }
+    return resolvedReport[0] as Report;
 
-    return resolvedReport as Report;
+    // if (resolveError || !resolvedReport) {
+    //   throw new BadRequestException('Failed to resolve report');
+    // }
+
+    // // Store ML verification result if available
+    // if (mlResult) {
+    //   await this.supabase.getClient().from('ml_verification').insert({
+    //     report_id: reportId,
+    //     predicted_class: mlResult.predicted_class,
+    //     confidence: mlResult.confidence,
+    //     verified: true,
+    //     verified_at: new Date().toISOString(),
+    //   });
+    // }
+
+    // return resolvedReport as Report;
   }
 
   /**
