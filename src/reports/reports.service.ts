@@ -6,12 +6,14 @@ import {
 import { SupabaseService } from '../supabase/supabase.service';
 import { MLService } from 'src/ml/ml.service';
 import { Report, RequestUser, MLPrediction } from './reports.types';
+import { NotificationsService } from 'src/notification/notification.service';
 
 @Injectable()
 export class ReportsService {
   constructor(
     private readonly supabase: SupabaseService,
     private readonly mlService: MLService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   /**
@@ -387,35 +389,34 @@ export class ReportsService {
       resolveData.resolved_class = mlResult.predicted_class;
     }
 
-    const { data: resolvedReport, error: resolveError } = await this.supabase
+    const { data, error } = await this.supabase
       .getClient()
       .from('reports')
       .update(resolveData)
       .eq('id', reportId)
-      .select();
+      .select()
+      .single(); // 🔥 IMPORTANT
 
-    if (resolveError || !resolvedReport || resolvedReport.length === 0) {
+    if (error || !data) {
       throw new BadRequestException('Failed to resolve report');
     }
 
-    return resolvedReport[0] as Report;
+    // 🔔 SEND PUSH NOTIFICATION (SAFE)
+    await this.notificationsService
+      .sendReportStatusNotification({
+        id: data.id,
+        title: data.title,
+        status: 'resolved',
+        user_id: data.user_id,
+      })
+      .catch((err) => {
+        console.error(
+          '[NOTIFICATION] Failed to send report resolved notification',
+          err?.message,
+        );
+      });
 
-    // if (resolveError || !resolvedReport) {
-    //   throw new BadRequestException('Failed to resolve report');
-    // }
-
-    // // Store ML verification result if available
-    // if (mlResult) {
-    //   await this.supabase.getClient().from('ml_verification').insert({
-    //     report_id: reportId,
-    //     predicted_class: mlResult.predicted_class,
-    //     confidence: mlResult.confidence,
-    //     verified: true,
-    //     verified_at: new Date().toISOString(),
-    //   });
-    // }
-
-    // return resolvedReport as Report;
+    return data as Report;
   }
 
   /**

@@ -9,6 +9,7 @@ import { MlModule } from './ml/ml.module';
 import { CommonModule } from './common/common.module';
 import { SupabaseModule } from './supabase/supabase.module';
 import { ConfigModule } from '@nestjs/config';
+import { NotificationModule } from './notification/notification.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { ConfigModule } from '@nestjs/config';
     ConfigModule.forRoot({
       isGlobal: true, // Makes ConfigService available everywhere
     }),
+    NotificationModule,
   ],
   controllers: [AppController],
   providers: [AppService],
