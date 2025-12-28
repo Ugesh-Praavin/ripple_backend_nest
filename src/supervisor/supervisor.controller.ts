@@ -45,9 +45,25 @@ export class SupervisorController {
     @Body() body: CompleteReportDto,
     @Req() req: { user: RequestUser },
   ) {
+    console.log(
+      '🔵 [CONTROLLER] PATCH /supervisor/report/:id/complete - REQUEST ENTERED',
+    );
+    console.log('🔵 [CONTROLLER] Parsed reportId:', reportId);
+    console.log('🔵 [CONTROLLER] Parsed body:', JSON.stringify(body, null, 2));
+    console.log('🔵 [CONTROLLER] Parsed image_url:', body.image_url);
+    console.log(
+      '🔵 [CONTROLLER] Authenticated user:',
+      JSON.stringify(req.user, null, 2),
+    );
+
     if (req.user.role !== 'SUPERVISOR') {
+      console.log('🔵 [CONTROLLER] ERROR: User is not a SUPERVISOR');
       throw new ForbiddenException('Supervisor access required');
     }
+
+    console.log(
+      '🔵 [CONTROLLER] Role check passed, calling reportsService.completeReport',
+    );
 
     // Validation is handled by class-validator decorators in CompleteReportDto
     // ValidationPipe will automatically validate and throw BadRequestException if invalid

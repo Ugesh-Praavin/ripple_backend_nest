@@ -132,10 +132,17 @@ export class ReportsService {
     resolvedImageUrl: string,
     user: RequestUser,
   ): Promise<Report | { status: string; requires_manual_review: boolean }> {
+    console.log('🟢 [SERVICE] completeReport called');
+    console.log('🟢 [SERVICE] reportId:', reportId);
+    console.log('🟢 [SERVICE] resolvedImageUrl:', resolvedImageUrl);
+    console.log('🟢 [SERVICE] user:', JSON.stringify(user, null, 2));
+
     if (user.role !== 'SUPERVISOR') {
+      console.log('🟢 [SERVICE] ERROR: User is not a SUPERVISOR');
       throw new UnauthorizedException('Only supervisors can complete reports');
     }
 
+    console.log('🟢 [SERVICE] Executing Supabase SELECT query...');
     const { data: report, error: fetchError } = await this.supabase
       .getClient()
       .from('reports')
@@ -143,54 +150,106 @@ export class ReportsService {
       .eq('id', reportId)
       .single();
 
-    if (fetchError || !report) {
-      throw new BadRequestException('Report not found');
+    console.log('🟢 [SERVICE] Supabase SELECT result:');
+    console.log('🟢 [SERVICE] - data:', report ? JSON.stringify(report, null, 2) : 'null');
+    console.log('🟢 [SERVICE] - error:', fetchError ? JSON.stringify(fetchError, null, 2) : 'null');
+
+    if (fetchError) {
+      console.log('🟢 [SERVICE] ERROR: Supabase SELECT failed:', fetchError.message);
+      throw new BadRequestException(
+        `Report not found: ${fetchError.message || 'Database query failed'}`,
+      );
+    }
+
+    if (!report) {
+      console.log('🟢 [SERVICE] ERROR: Report not found (data is null)');
+      throw new BadRequestException(`Report not found with id: ${reportId}`);
     }
 
     const typedReport = report as Report;
-    console.log('🧪 COMPLETE DEBUG', {
-      reportId,
-      status: typedReport.status,
-      worker: typedReport.worker_name,
-      supervisor_id: typedReport.supervisor_id,
-      user_uid: user.uid,
+    console.log('🟢 [SERVICE] Report fetched successfully:');
+    console.log('🟢 [SERVICE] - id:', typedReport.id);
+    console.log('🟢 [SERVICE] - status:', typedReport.status);
+    console.log('🟢 [SERVICE] - worker_name:', typedReport.worker_name);
+    console.log('🟢 [SERVICE] - supervisor_id:', typedReport.supervisor_id);
+    console.log('🟢 [SERVICE] - user.uid:', user.uid);
+
+    // Check status
+    if (typedReport.status !== 'In Progress') {
+      console.log('🟢 [SERVICE] ERROR: Status check failed. Current status:', typedReport.status);
+      throw new BadRequestException(
+        `Cannot complete report. Current status: ${typedReport.status}. Expected: "In Progress"`,
+      );
+    }
+    console.log('🟢 [SERVICE] Status check passed: "In Progress"');
+
+    // Check worker_name
+    if (!typedReport.worker_name) {
+      console.log('🟢 [SERVICE] ERROR: worker_name is missing');
+      throw new BadRequestException(
+        'Cannot complete report. A worker must be assigned before completing the report.',
+      );
+    }
+    console.log('🟢 [SERVICE] Worker check passed:', typedReport.worker_name);
+
+    // Access check
+    if (typedReport.supervisor_id && typedReport.supervisor_id !== user.uid) {
+      console.log('🟢 [SERVICE] ERROR: Access check failed');
+      console.log('🟢 [SERVICE] - report.supervisor_id:', typedReport.supervisor_id);
+      console.log('🟢 [SERVICE] - user.uid:', user.uid);
+      throw new UnauthorizedException(
+        `You do not have access to this report. Report is assigned to supervisor: ${typedReport.supervisor_id}`,
+      );
+    }
+    console.log('🟢 [SERVICE] Access check passed');
+
+    // Update resolved image
+    // Note: Status remains 'In Progress' until verification completes
+    // verifyReport() will update status to 'Resolved' or 'Pending' based on ML results
+    console.log('🟢 [SERVICE] Executing Supabase UPDATE query...');
+    console.log('🟢 [SERVICE] Update data:', {
+      resolved_image_url: resolvedImageUrl,
+      updated_at: new Date().toISOString(),
     });
 
-    // ✅ ADD THESE TWO CHECKS
-    if (typedReport.status !== 'In Progress') {
-      throw new BadRequestException(
-        `Cannot complete report. Current status: ${typedReport.status}`,
-      );
-    }
-
-    if (!typedReport.worker_name) {
-      throw new BadRequestException(
-        'Assign a worker before completing the report',
-      );
-    }
-
-    // ✅ Access check (keep this)
-    if (typedReport.supervisor_id && typedReport.supervisor_id !== user.uid) {
-      throw new UnauthorizedException('You do not have access to this report');
-    }
-
-    // ✅ NOW update resolved image
     const { data: updatedReport, error: updateError } = await this.supabase
       .getClient()
       .from('reports')
       .update({
         resolved_image_url: resolvedImageUrl,
-        status: 'VerificationPending', // ✅ IMPORTANT
         updated_at: new Date().toISOString(),
       })
       .eq('id', reportId)
       .select();
 
-    if (updateError || !updatedReport || updatedReport.length === 0) {
+    console.log('🟢 [SERVICE] Supabase UPDATE result:');
+    console.log('🟢 [SERVICE] - data:', updatedReport ? JSON.stringify(updatedReport, null, 2) : 'null');
+    console.log('🟢 [SERVICE] - data.length:', updatedReport ? updatedReport.length : 'N/A');
+    console.log('🟢 [SERVICE] - error:', updateError ? JSON.stringify(updateError, null, 2) : 'null');
+
+    if (updateError) {
+      console.log('🟢 [SERVICE] ERROR: Supabase UPDATE failed:', updateError.message);
       throw new BadRequestException(
-        'Failed to update report with resolved image',
+        `Failed to update report: ${updateError.message || 'Database update failed'}`,
       );
     }
+
+    if (!updatedReport) {
+      console.log('🟢 [SERVICE] ERROR: UPDATE returned null data');
+      throw new BadRequestException(
+        'Failed to update report: Update query returned no data',
+      );
+    }
+
+    if (updatedReport.length === 0) {
+      console.log('🟢 [SERVICE] ERROR: UPDATE affected 0 rows');
+      throw new BadRequestException(
+        `Failed to update report: No rows were updated. Report ID ${reportId} may not exist or may have been deleted.`,
+      );
+    }
+
+    console.log('🟢 [SERVICE] UPDATE successful, affected rows:', updatedReport.length);
+    console.log('🟢 [SERVICE] Calling verifyReport...');
 
     return this.verifyReport(reportId, resolvedImageUrl);
   }
